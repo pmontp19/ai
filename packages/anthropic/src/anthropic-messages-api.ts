@@ -38,6 +38,7 @@ export interface AnthropicAssistantMessage {
     | AnthropicToolSearchToolResultContent
     | AnthropicBashCodeExecutionToolResultContent
     | AnthropicTextEditorCodeExecutionToolResultContent
+    | AnthropicAdvisorToolResultContent
     | AnthropicMcpToolUseContent
     | AnthropicMcpToolResultContent
     | AnthropicCompactionContent
@@ -147,7 +148,9 @@ export interface AnthropicServerToolUseContent {
     | 'text_editor_code_execution'
     // tool search:
     | 'tool_search_tool_regex'
-    | 'tool_search_tool_bm25';
+    | 'tool_search_tool_bm25'
+    // advisor:
+    | 'advisor';
   input: unknown;
   cache_control: AnthropicCacheControl | undefined;
 }
@@ -306,6 +309,25 @@ export interface AnthropicBashCodeExecutionToolResultContent {
   cache_control: AnthropicCacheControl | undefined;
 }
 
+export interface AnthropicAdvisorToolResultContent {
+  type: 'advisor_tool_result';
+  tool_use_id: string;
+  content:
+    | {
+        type: 'advisor_result';
+        text: string;
+      }
+    | {
+        type: 'advisor_redacted_result';
+        encrypted_content: string;
+      }
+    | {
+        type: 'advisor_tool_result_error';
+        error_code: string;
+      };
+  cache_control: AnthropicCacheControl | undefined;
+}
+
 export interface AnthropicWebFetchToolResultContent {
   type: 'web_fetch_tool_result';
   tool_use_id: string;
@@ -455,6 +477,13 @@ export type AnthropicTool =
   | {
       type: 'tool_search_tool_bm25_20251119';
       name: string;
+    }
+  | {
+      type: 'advisor_20260301';
+      name: string;
+      model: string;
+      max_uses?: number;
+      caching?: { type: 'ephemeral'; ttl?: '5m' | '1h' };
     };
 
 export type AnthropicSpeed = 'fast' | 'standard';
@@ -828,6 +857,25 @@ export const anthropicMessagesResponseSchema = lazySchema(() =>
               }),
             ]),
           }),
+          // advisor tool results for advisor_20260301:
+          z.object({
+            type: z.literal('advisor_tool_result'),
+            tool_use_id: z.string(),
+            content: z.discriminatedUnion('type', [
+              z.object({
+                type: z.literal('advisor_result'),
+                text: z.string(),
+              }),
+              z.object({
+                type: z.literal('advisor_redacted_result'),
+                encrypted_content: z.string(),
+              }),
+              z.object({
+                type: z.literal('advisor_tool_result_error'),
+                error_code: z.string(),
+              }),
+            ]),
+          }),
         ]),
       ),
       stop_reason: z.string().nullish(),
@@ -840,7 +888,12 @@ export const anthropicMessagesResponseSchema = lazySchema(() =>
         iterations: z
           .array(
             z.object({
-              type: z.union([z.literal('compaction'), z.literal('message')]),
+              type: z.union([
+                z.literal('compaction'),
+                z.literal('message'),
+                z.literal('advisor_message'),
+              ]),
+              model: z.string().nullish(),
               input_tokens: z.number(),
               output_tokens: z.number(),
             }),
@@ -1186,6 +1239,25 @@ export const anthropicMessagesChunkSchema = lazySchema(() =>
               }),
             ]),
           }),
+          // advisor tool results for advisor_20260301:
+          z.object({
+            type: z.literal('advisor_tool_result'),
+            tool_use_id: z.string(),
+            content: z.discriminatedUnion('type', [
+              z.object({
+                type: z.literal('advisor_result'),
+                text: z.string(),
+              }),
+              z.object({
+                type: z.literal('advisor_redacted_result'),
+                encrypted_content: z.string(),
+              }),
+              z.object({
+                type: z.literal('advisor_tool_result_error'),
+                error_code: z.string(),
+              }),
+            ]),
+          }),
         ]),
       }),
       z.object({
@@ -1285,7 +1357,12 @@ export const anthropicMessagesChunkSchema = lazySchema(() =>
           iterations: z
             .array(
               z.object({
-                type: z.union([z.literal('compaction'), z.literal('message')]),
+                type: z.union([
+                  z.literal('compaction'),
+                  z.literal('message'),
+                  z.literal('advisor_message'),
+                ]),
+                model: z.string().nullish(),
                 input_tokens: z.number(),
                 output_tokens: z.number(),
               }),

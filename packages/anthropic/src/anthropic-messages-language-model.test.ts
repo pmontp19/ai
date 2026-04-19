@@ -3330,6 +3330,285 @@ describe('AnthropicMessagesLanguageModel', () => {
       });
     });
 
+    describe('advisor tool', () => {
+      it('should send request body and beta header for advisor_20260301', async () => {
+        server.urls['https://api.anthropic.com/v1/messages'].response = {
+          type: 'json-value',
+          body: {
+            id: 'msg_advisor_1',
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'text', text: 'ok' }],
+            model: 'claude-sonnet-4-6',
+            stop_reason: 'end_turn',
+            stop_sequence: null,
+            usage: { input_tokens: 5, output_tokens: 5 },
+          },
+        };
+
+        await provider('claude-sonnet-4-6').doGenerate({
+          prompt: TEST_PROMPT,
+          tools: [
+            {
+              type: 'provider',
+              id: 'anthropic.advisor_20260301',
+              name: 'advisor',
+              args: {
+                model: 'claude-opus-4-6',
+                maxUses: 3,
+                caching: { type: 'ephemeral', ttl: '5m' },
+              },
+            },
+          ],
+        });
+
+        expect(await server.calls[0].requestBodyJson).toMatchInlineSnapshot(`
+          {
+            "max_tokens": 128000,
+            "messages": [
+              {
+                "content": [
+                  {
+                    "text": "Hello",
+                    "type": "text",
+                  },
+                ],
+                "role": "user",
+              },
+            ],
+            "model": "claude-sonnet-4-6",
+            "tools": [
+              {
+                "caching": {
+                  "ttl": "5m",
+                  "type": "ephemeral",
+                },
+                "max_uses": 3,
+                "model": "claude-opus-4-6",
+                "name": "advisor",
+                "type": "advisor_20260301",
+              },
+            ],
+          }
+        `);
+
+        expect(server.calls[0].requestHeaders['anthropic-beta']).toContain(
+          'advisor-tool-2026-03-01',
+        );
+      });
+
+      it('should map advisor server_tool_use and advisor_tool_result into content + iterations metadata', async () => {
+        server.urls['https://api.anthropic.com/v1/messages'].response = {
+          type: 'json-value',
+          body: {
+            id: 'msg_advisor_2',
+            type: 'message',
+            role: 'assistant',
+            content: [
+              {
+                type: 'server_tool_use',
+                id: 'srvtoolu_advisor_1',
+                name: 'advisor',
+                input: {},
+              },
+              {
+                type: 'advisor_tool_result',
+                tool_use_id: 'srvtoolu_advisor_1',
+                content: {
+                  type: 'advisor_result',
+                  text: 'Try binary search.',
+                },
+              },
+              {
+                type: 'text',
+                text: 'Using binary search.',
+              },
+            ],
+            model: 'claude-sonnet-4-6',
+            stop_reason: 'end_turn',
+            stop_sequence: null,
+            usage: {
+              input_tokens: 412,
+              output_tokens: 531,
+              iterations: [
+                { type: 'message', input_tokens: 412, output_tokens: 89 },
+                {
+                  type: 'advisor_message',
+                  model: 'claude-opus-4-6',
+                  input_tokens: 823,
+                  output_tokens: 1612,
+                },
+                { type: 'message', input_tokens: 1348, output_tokens: 442 },
+              ],
+            },
+          },
+        };
+
+        const { content, providerMetadata } = await provider(
+          'claude-sonnet-4-6',
+        ).doGenerate({
+          prompt: TEST_PROMPT,
+          tools: [
+            {
+              type: 'provider',
+              id: 'anthropic.advisor_20260301',
+              name: 'advisor',
+              args: { model: 'claude-opus-4-6' },
+            },
+          ],
+        });
+
+        expect(content).toMatchInlineSnapshot(`
+          [
+            {
+              "input": "{}",
+              "providerExecuted": true,
+              "toolCallId": "srvtoolu_advisor_1",
+              "toolName": "advisor",
+              "type": "tool-call",
+            },
+            {
+              "result": {
+                "text": "Try binary search.",
+                "type": "advisor_result",
+              },
+              "toolCallId": "srvtoolu_advisor_1",
+              "toolName": "advisor",
+              "type": "tool-result",
+            },
+            {
+              "text": "Using binary search.",
+              "type": "text",
+            },
+          ]
+        `);
+
+        expect(providerMetadata?.anthropic?.iterations).toMatchInlineSnapshot(`
+          [
+            {
+              "inputTokens": 412,
+              "outputTokens": 89,
+              "type": "message",
+            },
+            {
+              "inputTokens": 823,
+              "model": "claude-opus-4-6",
+              "outputTokens": 1612,
+              "type": "advisor_message",
+            },
+            {
+              "inputTokens": 1348,
+              "outputTokens": 442,
+              "type": "message",
+            },
+          ]
+        `);
+      });
+
+      it('should map advisor error result with isError flag', async () => {
+        server.urls['https://api.anthropic.com/v1/messages'].response = {
+          type: 'json-value',
+          body: {
+            id: 'msg_advisor_3',
+            type: 'message',
+            role: 'assistant',
+            content: [
+              {
+                type: 'advisor_tool_result',
+                tool_use_id: 'srvtoolu_advisor_1',
+                content: {
+                  type: 'advisor_tool_result_error',
+                  error_code: 'max_uses_exceeded',
+                },
+              },
+            ],
+            model: 'claude-sonnet-4-6',
+            stop_reason: 'end_turn',
+            stop_sequence: null,
+            usage: { input_tokens: 5, output_tokens: 5 },
+          },
+        };
+
+        const { content } = await provider('claude-sonnet-4-6').doGenerate({
+          prompt: TEST_PROMPT,
+          tools: [
+            {
+              type: 'provider',
+              id: 'anthropic.advisor_20260301',
+              name: 'advisor',
+              args: { model: 'claude-opus-4-6' },
+            },
+          ],
+        });
+
+        expect(content).toMatchInlineSnapshot(`
+          [
+            {
+              "isError": true,
+              "result": {
+                "errorCode": "max_uses_exceeded",
+                "type": "advisor_tool_result_error",
+              },
+              "toolCallId": "srvtoolu_advisor_1",
+              "toolName": "advisor",
+              "type": "tool-result",
+            },
+          ]
+        `);
+      });
+
+      it('should map redacted advisor result preserving encrypted content', async () => {
+        server.urls['https://api.anthropic.com/v1/messages'].response = {
+          type: 'json-value',
+          body: {
+            id: 'msg_advisor_4',
+            type: 'message',
+            role: 'assistant',
+            content: [
+              {
+                type: 'advisor_tool_result',
+                tool_use_id: 'srvtoolu_advisor_1',
+                content: {
+                  type: 'advisor_redacted_result',
+                  encrypted_content: 'ENCRYPTED_BLOB_XYZ',
+                },
+              },
+            ],
+            model: 'claude-sonnet-4-6',
+            stop_reason: 'end_turn',
+            stop_sequence: null,
+            usage: { input_tokens: 5, output_tokens: 5 },
+          },
+        };
+
+        const { content } = await provider('claude-sonnet-4-6').doGenerate({
+          prompt: TEST_PROMPT,
+          tools: [
+            {
+              type: 'provider',
+              id: 'anthropic.advisor_20260301',
+              name: 'advisor',
+              args: { model: 'claude-opus-4-6' },
+            },
+          ],
+        });
+
+        expect(content).toMatchInlineSnapshot(`
+          [
+            {
+              "result": {
+                "encryptedContent": "ENCRYPTED_BLOB_XYZ",
+                "type": "advisor_redacted_result",
+              },
+              "toolCallId": "srvtoolu_advisor_1",
+              "toolName": "advisor",
+              "type": "tool-result",
+            },
+          ]
+        `);
+      });
+    });
+
     describe('mcp servers', () => {
       it('should send request body with include and tool', async () => {
         prepareJsonFixtureResponse('anthropic-mcp.1');
@@ -8460,6 +8739,155 @@ describe('AnthropicMessagesLanguageModel', () => {
           );
           expect(toolResultChunk).toBeDefined();
           expect(toolResultChunk?.toolName).toBe('tool_search');
+        });
+      });
+    });
+
+    describe('advisor tool', () => {
+      it('should stream advisor server_tool_use + advisor_tool_result and surface advisor_message iteration', async () => {
+        server.urls['https://api.anthropic.com/v1/messages'].response = {
+          type: 'stream-chunks',
+          chunks: [
+            `data: {"type":"message_start","message":{"id":"msg_advisor_stream_1","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-6","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":1}}}\n\n`,
+            `data: {"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_advisor_s1","name":"advisor","input":{}}}\n\n`,
+            `data: {"type":"content_block_stop","index":0}\n\n`,
+            `data: {"type":"content_block_start","index":1,"content_block":{"type":"advisor_tool_result","tool_use_id":"srvtoolu_advisor_s1","content":{"type":"advisor_result","text":"Try binary search."}}}\n\n`,
+            `data: {"type":"content_block_stop","index":1}\n\n`,
+            `data: {"type":"content_block_start","index":2,"content_block":{"type":"text","text":""}}\n\n`,
+            `data: {"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"Binary search it is."}}\n\n`,
+            `data: {"type":"content_block_stop","index":2}\n\n`,
+            `data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":20,"iterations":[{"type":"message","input_tokens":10,"output_tokens":5},{"type":"advisor_message","model":"claude-opus-4-6","input_tokens":40,"output_tokens":60},{"type":"message","input_tokens":80,"output_tokens":15}]}}\n\n`,
+            `data: {"type":"message_stop"}\n\n`,
+          ],
+        };
+
+        const { stream } = await provider('claude-sonnet-4-6').doStream({
+          prompt: TEST_PROMPT,
+          tools: [
+            {
+              type: 'provider',
+              id: 'anthropic.advisor_20260301',
+              name: 'advisor',
+              args: { model: 'claude-opus-4-6' },
+            },
+          ],
+        });
+
+        const parts = await convertReadableStreamToArray(stream);
+
+        const toolCall = parts.find(p => p.type === 'tool-call');
+        expect(toolCall).toMatchObject({
+          type: 'tool-call',
+          toolCallId: 'srvtoolu_advisor_s1',
+          toolName: 'advisor',
+          input: '{}',
+          providerExecuted: true,
+        });
+
+        const toolResult = parts.find(p => p.type === 'tool-result');
+        expect(toolResult).toMatchObject({
+          type: 'tool-result',
+          toolCallId: 'srvtoolu_advisor_s1',
+          toolName: 'advisor',
+          result: { type: 'advisor_result', text: 'Try binary search.' },
+        });
+
+        const finish = parts.find(p => p.type === 'finish');
+        expect(finish?.providerMetadata?.anthropic?.iterations)
+          .toMatchInlineSnapshot(`
+          [
+            {
+              "inputTokens": 10,
+              "outputTokens": 5,
+              "type": "message",
+            },
+            {
+              "inputTokens": 40,
+              "model": "claude-opus-4-6",
+              "outputTokens": 60,
+              "type": "advisor_message",
+            },
+            {
+              "inputTokens": 80,
+              "outputTokens": 15,
+              "type": "message",
+            },
+          ]
+        `);
+      });
+
+      it('should stream advisor error result with isError flag', async () => {
+        server.urls['https://api.anthropic.com/v1/messages'].response = {
+          type: 'stream-chunks',
+          chunks: [
+            `data: {"type":"message_start","message":{"id":"msg_advisor_stream_2","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-6","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":1}}}\n\n`,
+            `data: {"type":"content_block_start","index":0,"content_block":{"type":"advisor_tool_result","tool_use_id":"srvtoolu_advisor_s2","content":{"type":"advisor_tool_result_error","error_code":"max_uses_exceeded"}}}\n\n`,
+            `data: {"type":"content_block_stop","index":0}\n\n`,
+            `data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":0}}\n\n`,
+            `data: {"type":"message_stop"}\n\n`,
+          ],
+        };
+
+        const { stream } = await provider('claude-sonnet-4-6').doStream({
+          prompt: TEST_PROMPT,
+          tools: [
+            {
+              type: 'provider',
+              id: 'anthropic.advisor_20260301',
+              name: 'advisor',
+              args: { model: 'claude-opus-4-6' },
+            },
+          ],
+        });
+
+        const parts = await convertReadableStreamToArray(stream);
+        const toolResult = parts.find(p => p.type === 'tool-result');
+        expect(toolResult).toMatchObject({
+          type: 'tool-result',
+          toolCallId: 'srvtoolu_advisor_s2',
+          toolName: 'advisor',
+          isError: true,
+          result: {
+            type: 'advisor_tool_result_error',
+            errorCode: 'max_uses_exceeded',
+          },
+        });
+      });
+
+      it('should stream redacted advisor result preserving encryptedContent', async () => {
+        server.urls['https://api.anthropic.com/v1/messages'].response = {
+          type: 'stream-chunks',
+          chunks: [
+            `data: {"type":"message_start","message":{"id":"msg_advisor_stream_3","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-6","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":1}}}\n\n`,
+            `data: {"type":"content_block_start","index":0,"content_block":{"type":"advisor_tool_result","tool_use_id":"srvtoolu_advisor_s3","content":{"type":"advisor_redacted_result","encrypted_content":"ENCRYPTED_BLOB_XYZ"}}}\n\n`,
+            `data: {"type":"content_block_stop","index":0}\n\n`,
+            `data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":0}}\n\n`,
+            `data: {"type":"message_stop"}\n\n`,
+          ],
+        };
+
+        const { stream } = await provider('claude-sonnet-4-6').doStream({
+          prompt: TEST_PROMPT,
+          tools: [
+            {
+              type: 'provider',
+              id: 'anthropic.advisor_20260301',
+              name: 'advisor',
+              args: { model: 'claude-opus-4-6' },
+            },
+          ],
+        });
+
+        const parts = await convertReadableStreamToArray(stream);
+        const toolResult = parts.find(p => p.type === 'tool-result');
+        expect(toolResult).toMatchObject({
+          type: 'tool-result',
+          toolCallId: 'srvtoolu_advisor_s3',
+          toolName: 'advisor',
+          result: {
+            type: 'advisor_redacted_result',
+            encryptedContent: 'ENCRYPTED_BLOB_XYZ',
+          },
         });
       });
     });

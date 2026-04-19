@@ -840,6 +840,81 @@ describe('prepareTools', () => {
       `);
     });
 
+    it('should correctly prepare advisor_20260301', async () => {
+      const result = await prepareTools({
+        tools: [
+          {
+            type: 'provider',
+            id: 'anthropic.advisor_20260301',
+            name: 'advisor',
+            args: {
+              model: 'claude-opus-4-6',
+              maxUses: 3,
+              caching: { type: 'ephemeral', ttl: '5m' },
+            },
+          },
+        ],
+        toolChoice: undefined,
+        supportsStructuredOutput: true,
+      });
+
+      expect(result).toMatchInlineSnapshot(`
+        {
+          "betas": Set {
+            "advisor-tool-2026-03-01",
+          },
+          "toolChoice": undefined,
+          "toolWarnings": [],
+          "tools": [
+            {
+              "caching": {
+                "ttl": "5m",
+                "type": "ephemeral",
+              },
+              "max_uses": 3,
+              "model": "claude-opus-4-6",
+              "name": "advisor",
+              "type": "advisor_20260301",
+            },
+          ],
+        }
+      `);
+    });
+
+    it('should correctly prepare advisor_20260301 without optional fields', async () => {
+      const result = await prepareTools({
+        tools: [
+          {
+            type: 'provider',
+            id: 'anthropic.advisor_20260301',
+            name: 'advisor',
+            args: { model: 'claude-opus-4-6' },
+          },
+        ],
+        toolChoice: undefined,
+        supportsStructuredOutput: true,
+      });
+
+      expect(result).toMatchInlineSnapshot(`
+        {
+          "betas": Set {
+            "advisor-tool-2026-03-01",
+          },
+          "toolChoice": undefined,
+          "toolWarnings": [],
+          "tools": [
+            {
+              "caching": undefined,
+              "max_uses": undefined,
+              "model": "claude-opus-4-6",
+              "name": "advisor",
+              "type": "advisor_20260301",
+            },
+          ],
+        }
+      `);
+    });
+
     it('should correctly prepare tool_search_bm25_20251119', async () => {
       const result = await prepareTools({
         tools: [
@@ -1539,6 +1614,124 @@ describe('anthropicMessagesResponseSchema - web_fetch_tool_result', () => {
 
     const schema = anthropicMessagesResponseSchema();
     const result = await schema.validate!(textResponse);
+
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('anthropicMessagesResponseSchema - advisor_tool_result', () => {
+  it('should accept plaintext advisor result', async () => {
+    const response = {
+      type: 'message',
+      id: 'msg_1',
+      model: 'claude-sonnet-4-6',
+      content: [
+        {
+          type: 'server_tool_use',
+          id: 'srvtoolu_advisor_1',
+          name: 'advisor',
+          input: {},
+        },
+        {
+          type: 'advisor_tool_result',
+          tool_use_id: 'srvtoolu_advisor_1',
+          content: {
+            type: 'advisor_result',
+            text: 'Consider using a binary search here.',
+          },
+        },
+      ],
+      stop_reason: 'end_turn',
+      usage: {
+        input_tokens: 412,
+        output_tokens: 531,
+        iterations: [
+          { type: 'message', input_tokens: 412, output_tokens: 89 },
+          {
+            type: 'advisor_message',
+            model: 'claude-opus-4-6',
+            input_tokens: 823,
+            output_tokens: 1612,
+          },
+          { type: 'message', input_tokens: 1348, output_tokens: 442 },
+        ],
+      },
+    };
+
+    const schema = anthropicMessagesResponseSchema();
+    const result = await schema.validate!(response);
+
+    expect(result.success).toBe(true);
+  });
+
+  it('should accept redacted advisor result', async () => {
+    const response = {
+      type: 'message',
+      id: 'msg_2',
+      model: 'claude-sonnet-4-6',
+      content: [
+        {
+          type: 'advisor_tool_result',
+          tool_use_id: 'srvtoolu_advisor_2',
+          content: {
+            type: 'advisor_redacted_result',
+            encrypted_content: 'ENCRYPTED_BLOB_XYZ',
+          },
+        },
+      ],
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 10, output_tokens: 5 },
+    };
+
+    const schema = anthropicMessagesResponseSchema();
+    const result = await schema.validate!(response);
+
+    expect(result.success).toBe(true);
+  });
+
+  it('should accept advisor error result', async () => {
+    const response = {
+      type: 'message',
+      id: 'msg_3',
+      model: 'claude-sonnet-4-6',
+      content: [
+        {
+          type: 'advisor_tool_result',
+          tool_use_id: 'srvtoolu_advisor_3',
+          content: {
+            type: 'advisor_tool_result_error',
+            error_code: 'max_uses_exceeded',
+          },
+        },
+      ],
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 10, output_tokens: 5 },
+    };
+
+    const schema = anthropicMessagesResponseSchema();
+    const result = await schema.validate!(response);
+
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('anthropicMessagesChunkSchema - advisor_tool_result', () => {
+  it('should accept advisor result in streaming response', async () => {
+    const chunk = {
+      type: 'content_block_start',
+      index: 2,
+      content_block: {
+        type: 'advisor_tool_result',
+        tool_use_id: 'srvtoolu_advisor_1',
+        content: {
+          type: 'advisor_result',
+          text: 'Consider using a binary search here.',
+        },
+      },
+    };
+
+    const schema = anthropicMessagesChunkSchema();
+    const result = await schema.validate!(chunk);
 
     expect(result.success).toBe(true);
   });

@@ -314,6 +314,7 @@ export class AnthropicMessagesLanguageModel implements LanguageModelV3 {
         'anthropic.web_fetch_20260209': 'web_fetch',
         'anthropic.tool_search_regex_20251119': 'tool_search_tool_regex',
         'anthropic.tool_search_bm25_20251119': 'tool_search_tool_bm25',
+        'anthropic.advisor_20260301': 'advisor',
       },
     });
 
@@ -934,6 +935,14 @@ export class AnthropicMessagesLanguageModel implements LanguageModelV3 {
               input: JSON.stringify(part.input),
               providerExecuted: true,
             });
+          } else if (part.name === 'advisor') {
+            content.push({
+              type: 'tool-call',
+              toolCallId: part.id,
+              toolName: toolNameMapping.toCustomToolName('advisor'),
+              input: JSON.stringify(part.input ?? {}),
+              providerExecuted: true,
+            });
           }
 
           break;
@@ -1107,6 +1116,43 @@ export class AnthropicMessagesLanguageModel implements LanguageModelV3 {
           break;
         }
 
+        // advisor tool results:
+        case 'advisor_tool_result': {
+          if (part.content.type === 'advisor_result') {
+            content.push({
+              type: 'tool-result',
+              toolCallId: part.tool_use_id,
+              toolName: toolNameMapping.toCustomToolName('advisor'),
+              result: {
+                type: 'advisor_result',
+                text: part.content.text,
+              },
+            });
+          } else if (part.content.type === 'advisor_redacted_result') {
+            content.push({
+              type: 'tool-result',
+              toolCallId: part.tool_use_id,
+              toolName: toolNameMapping.toCustomToolName('advisor'),
+              result: {
+                type: 'advisor_redacted_result',
+                encryptedContent: part.content.encrypted_content,
+              },
+            });
+          } else {
+            content.push({
+              type: 'tool-result',
+              toolCallId: part.tool_use_id,
+              toolName: toolNameMapping.toCustomToolName('advisor'),
+              isError: true,
+              result: {
+                type: 'advisor_tool_result_error',
+                errorCode: part.content.error_code,
+              },
+            });
+          }
+          break;
+        }
+
         // tool search tool results:
         case 'tool_search_tool_result': {
           let providerToolName = serverToolCalls[part.tool_use_id];
@@ -1183,6 +1229,7 @@ export class AnthropicMessagesLanguageModel implements LanguageModelV3 {
           iterations: response.usage.iterations
             ? response.usage.iterations.map(iter => ({
                 type: iter.type,
+                ...(iter.model != null ? { model: iter.model } : {}),
                 inputTokens: iter.input_tokens,
                 outputTokens: iter.output_tokens,
               }))
@@ -1313,6 +1360,7 @@ export class AnthropicMessagesLanguageModel implements LanguageModelV3 {
       | 'text_editor_code_execution_tool_result'
       | 'bash_code_execution_tool_result'
       | 'tool_search_tool_result'
+      | 'advisor_tool_result'
       | 'mcp_tool_use'
       | 'mcp_tool_result'
       | 'compaction'
@@ -1537,6 +1585,29 @@ export class AnthropicMessagesLanguageModel implements LanguageModelV3 {
                       toolName: customToolName,
                       providerExecuted: true,
                     });
+                  } else if (part.name === 'advisor') {
+                    const customToolName =
+                      toolNameMapping.toCustomToolName('advisor');
+
+                    // Advisor has no user-defined input; initial input may be
+                    // an empty object. Lock it in immediately to avoid waiting
+                    // for non-existent deltas.
+                    contentBlocks[value.index] = {
+                      type: 'tool-call',
+                      toolCallId: part.id,
+                      toolName: customToolName,
+                      input: JSON.stringify(part.input ?? {}),
+                      providerExecuted: true,
+                      firstDelta: false,
+                      providerToolName: 'advisor',
+                    };
+
+                    controller.enqueue({
+                      type: 'tool-input-start',
+                      id: part.id,
+                      toolName: customToolName,
+                      providerExecuted: true,
+                    });
                   }
 
                   return;
@@ -1691,6 +1762,43 @@ export class AnthropicMessagesLanguageModel implements LanguageModelV3 {
                       toolNameMapping.toCustomToolName('code_execution'),
                     result: part.content,
                   });
+                  return;
+                }
+
+                // advisor tool results:
+                case 'advisor_tool_result': {
+                  if (part.content.type === 'advisor_result') {
+                    controller.enqueue({
+                      type: 'tool-result',
+                      toolCallId: part.tool_use_id,
+                      toolName: toolNameMapping.toCustomToolName('advisor'),
+                      result: {
+                        type: 'advisor_result',
+                        text: part.content.text,
+                      },
+                    });
+                  } else if (part.content.type === 'advisor_redacted_result') {
+                    controller.enqueue({
+                      type: 'tool-result',
+                      toolCallId: part.tool_use_id,
+                      toolName: toolNameMapping.toCustomToolName('advisor'),
+                      result: {
+                        type: 'advisor_redacted_result',
+                        encryptedContent: part.content.encrypted_content,
+                      },
+                    });
+                  } else {
+                    controller.enqueue({
+                      type: 'tool-result',
+                      toolCallId: part.tool_use_id,
+                      toolName: toolNameMapping.toCustomToolName('advisor'),
+                      isError: true,
+                      result: {
+                        type: 'advisor_tool_result_error',
+                        errorCode: part.content.error_code,
+                      },
+                    });
+                  }
                   return;
                 }
 
@@ -2168,6 +2276,7 @@ export class AnthropicMessagesLanguageModel implements LanguageModelV3 {
                 iterations: usage.iterations
                   ? usage.iterations.map(iter => ({
                       type: iter.type,
+                      ...(iter.model != null ? { model: iter.model } : {}),
                       inputTokens: iter.input_tokens,
                       outputTokens: iter.output_tokens,
                     }))

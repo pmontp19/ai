@@ -922,6 +922,67 @@ const result = await generateText({
 
 This sends `tool_reference` blocks to Anthropic, which loads the corresponding deferred tool schemas into Claude's context.
 
+### Advisor Tool
+
+The [advisor tool](https://platform.claude.com/docs/en/docs/agents-and-tools/tool-use/advisor-tool) (`advisor_20260301`) lets a cheaper executor model (Sonnet or Haiku) consult a more capable advisor model (Opus) mid-generation, within a single request. No client-side orchestration is required.
+
+```ts
+import { anthropic } from '@ai-sdk/anthropic';
+import { generateText } from 'ai';
+
+const result = await generateText({
+  model: anthropic('claude-sonnet-4-6'),
+  prompt:
+    'I have a sorted list of 1 million integers and I need to find a specific value. What algorithm should I use? Ask the advisor before answering.',
+  tools: {
+    advisor: anthropic.tools.advisor_20260301({
+      model: 'claude-opus-4-6',
+      maxUses: 3,
+    }),
+  },
+});
+```
+
+#### Configuration Options
+
+- **model** _string_
+
+  Advisor model ID (e.g. `claude-opus-4-6`). Required.
+
+- **maxUses** _number_
+
+  Per-request cap on advisor calls. Unlimited when omitted.
+
+- **caching** _object_
+
+  Prompt caching for the advisor's transcript: `{ type: 'ephemeral', ttl: '5m' | '1h' }`.
+
+#### Supported Model Pairs
+
+| Executor                    | Advisor           |
+| --------------------------- | ----------------- |
+| `claude-sonnet-4-6`         | `claude-opus-4-6` |
+| `claude-haiku-4-5-20251001` | `claude-opus-4-6` |
+
+#### Streaming Behavior
+
+The advisor sub-inference does not stream. The executor's stream pauses while the advisor runs; the `advisor_tool_result` arrives in a single event once the advisor replies.
+
+#### Usage Reporting
+
+Advisor tokens are reported separately in `providerMetadata.anthropic.iterations` as `advisor_message` entries, each including the advisor `model`. Advisor tokens are billed at the advisor model's rate.
+
+```ts
+const iterations = result.providerMetadata?.anthropic?.iterations;
+// [
+//   { type: 'message', inputTokens: 1015, outputTokens: 35 },
+//   { type: 'advisor_message', model: 'claude-opus-4-6', inputTokens: 1879, outputTokens: 440 },
+//   { type: 'message', inputTokens: 1402, outputTokens: 605 },
+// ]
+```
+
+When the advisor tool is removed from `tools`, all `advisor_tool_result` blocks must also be stripped from the message history — otherwise Anthropic returns `400 invalid_request_error`.
+
 ### MCP Connectors
 
 Anthropic supports connecting to [MCP servers](https://docs.claude.com/en/docs/agents-and-tools/mcp-connector) as part of their execution.

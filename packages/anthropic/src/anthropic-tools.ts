@@ -1,3 +1,4 @@
+import { advisor_20260301 } from './tool/advisor_20260301';
 import { bash_20241022 } from './tool/bash_20241022';
 import { bash_20250124 } from './tool/bash_20250124';
 import { codeExecution_20250522 } from './tool/code-execution_20250522';
@@ -19,6 +20,25 @@ import { webSearch_20260209 } from './tool/web-search_20260209';
 import { webSearch_20250305 } from './tool/web-search_20250305';
 
 export const anthropicTools = {
+  /**
+   * The advisor tool lets a cheaper executor model (e.g. Sonnet or Haiku) consult
+   * a more capable advisor model (e.g. Opus) mid-generation within a single
+   * `/v1/messages` request. No client-side orchestration is required.
+   *
+   * The advisor sub-inference does not stream; the executor's stream pauses while
+   * the advisor runs, and the advisor result arrives as a single content block.
+   *
+   * Advisor tokens are reported separately in `usage.iterations` under
+   * `advisor_message` entries and are billed at the advisor model's rates.
+   *
+   * @param model - Advisor model ID (e.g. `claude-opus-4-6`).
+   * @param maxUses - Per-request cap on advisor calls. Unlimited when omitted.
+   * @param caching - Prompt caching configuration for the advisor's transcript.
+   *
+   * @see https://platform.claude.com/docs/en/docs/agents-and-tools/tool-use/advisor-tool
+   */
+  advisor_20260301,
+
   /**
    * The bash tool enables Claude to execute shell commands in a persistent bash session,
    * allowing system operations, script execution, and command-line automation.

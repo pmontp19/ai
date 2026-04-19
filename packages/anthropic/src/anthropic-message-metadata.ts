@@ -2,11 +2,17 @@ import { JSONObject } from '@ai-sdk/provider';
 
 /**
  * Represents a single iteration in the usage breakdown.
- * When compaction occurs, the API returns an iterations array showing
- * usage for each sampling iteration (compaction + message).
+ * When compaction occurs or the advisor tool is invoked, the API returns
+ * an iterations array showing usage for each sampling iteration.
  */
 export interface AnthropicUsageIteration {
-  type: 'compaction' | 'message';
+  type: 'compaction' | 'message' | 'advisor_message';
+
+  /**
+   * Advisor model ID (set on `advisor_message` iterations, billed at the
+   * advisor's rate).
+   */
+  model?: string;
 
   /**
    * Number of input tokens consumed in this iteration.

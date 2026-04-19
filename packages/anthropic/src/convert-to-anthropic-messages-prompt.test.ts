@@ -1662,6 +1662,161 @@ describe('assistant messages', () => {
     expect(warnings).toMatchInlineSnapshot(`[]`);
   });
 
+  describe('advisor tool 20260301', () => {
+    it('should convert advisor tool call and plaintext result back into server_tool_use + advisor_tool_result', async () => {
+      const warnings: SharedV3Warning[] = [];
+      const result = await convertToAnthropicMessagesPrompt({
+        prompt: [
+          {
+            role: 'assistant',
+            content: [
+              {
+                input: {},
+                providerExecuted: true,
+                toolCallId: 'srvtoolu_advisor_1',
+                toolName: 'advisor',
+                type: 'tool-call',
+              },
+              {
+                output: {
+                  type: 'json',
+                  value: {
+                    type: 'advisor_result',
+                    text: 'Try binary search.',
+                  },
+                },
+                toolCallId: 'srvtoolu_advisor_1',
+                toolName: 'advisor',
+                type: 'tool-result',
+              },
+            ],
+          },
+        ],
+        sendReasoning: false,
+        warnings,
+        toolNameMapping: defaultToolNameMapping,
+      });
+
+      expect(result.prompt.messages[0].content).toMatchInlineSnapshot(`
+        [
+          {
+            "cache_control": undefined,
+            "id": "srvtoolu_advisor_1",
+            "input": {},
+            "name": "advisor",
+            "type": "server_tool_use",
+          },
+          {
+            "cache_control": undefined,
+            "content": {
+              "text": "Try binary search.",
+              "type": "advisor_result",
+            },
+            "tool_use_id": "srvtoolu_advisor_1",
+            "type": "advisor_tool_result",
+          },
+        ]
+      `);
+      expect(warnings).toMatchInlineSnapshot(`[]`);
+    });
+
+    it('should round-trip redacted advisor result', async () => {
+      const warnings: SharedV3Warning[] = [];
+      const result = await convertToAnthropicMessagesPrompt({
+        prompt: [
+          {
+            role: 'assistant',
+            content: [
+              {
+                input: {},
+                providerExecuted: true,
+                toolCallId: 'srvtoolu_advisor_2',
+                toolName: 'advisor',
+                type: 'tool-call',
+              },
+              {
+                output: {
+                  type: 'json',
+                  value: {
+                    type: 'advisor_redacted_result',
+                    encryptedContent: 'ENCRYPTED_BLOB_XYZ',
+                  },
+                },
+                toolCallId: 'srvtoolu_advisor_2',
+                toolName: 'advisor',
+                type: 'tool-result',
+              },
+            ],
+          },
+        ],
+        sendReasoning: false,
+        warnings,
+        toolNameMapping: defaultToolNameMapping,
+      });
+
+      expect(result.prompt.messages[0].content[1]).toMatchInlineSnapshot(`
+        {
+          "cache_control": undefined,
+          "content": {
+            "encrypted_content": "ENCRYPTED_BLOB_XYZ",
+            "type": "advisor_redacted_result",
+          },
+          "tool_use_id": "srvtoolu_advisor_2",
+          "type": "advisor_tool_result",
+        }
+      `);
+      expect(warnings).toMatchInlineSnapshot(`[]`);
+    });
+
+    it('should round-trip advisor error result', async () => {
+      const warnings: SharedV3Warning[] = [];
+      const result = await convertToAnthropicMessagesPrompt({
+        prompt: [
+          {
+            role: 'assistant',
+            content: [
+              {
+                input: {},
+                providerExecuted: true,
+                toolCallId: 'srvtoolu_advisor_3',
+                toolName: 'advisor',
+                type: 'tool-call',
+              },
+              {
+                output: {
+                  type: 'error-json',
+                  value: {
+                    type: 'advisor_tool_result_error',
+                    errorCode: 'max_uses_exceeded',
+                  },
+                },
+                toolCallId: 'srvtoolu_advisor_3',
+                toolName: 'advisor',
+                type: 'tool-result',
+              },
+            ],
+          },
+        ],
+        sendReasoning: false,
+        warnings,
+        toolNameMapping: defaultToolNameMapping,
+      });
+
+      expect(result.prompt.messages[0].content[1]).toMatchInlineSnapshot(`
+        {
+          "cache_control": undefined,
+          "content": {
+            "error_code": "max_uses_exceeded",
+            "type": "advisor_tool_result_error",
+          },
+          "tool_use_id": "srvtoolu_advisor_3",
+          "type": "advisor_tool_result",
+        }
+      `);
+      expect(warnings).toMatchInlineSnapshot(`[]`);
+    });
+  });
+
   describe('code_execution 20250522', () => {
     it('should convert anthropic code_execution tool call and result parts', async () => {
       const warnings: SharedV3Warning[] = [];

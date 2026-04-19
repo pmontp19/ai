@@ -5,6 +5,7 @@ import {
 } from '@ai-sdk/provider';
 import { AnthropicTool, AnthropicToolChoice } from './anthropic-messages-api';
 import { CacheControlValidator } from './get-cache-control';
+import { advisor_20260301ArgsSchema } from './tool/advisor_20260301';
 import { textEditor_20250728ArgsSchema } from './tool/text-editor_20250728';
 import { webSearch_20260209ArgsSchema } from './tool/web-search_20260209';
 import { webSearch_20250305ArgsSchema } from './tool/web-search_20250305';
@@ -321,6 +322,24 @@ export async function prepareTools({
             anthropicTools.push({
               type: 'tool_search_tool_bm25_20251119',
               name: 'tool_search_tool_bm25',
+            });
+            break;
+          }
+
+          case 'anthropic.advisor_20260301': {
+            betas.add('advisor-tool-2026-03-01');
+            const args = await validateTypes({
+              value: tool.args,
+              schema: advisor_20260301ArgsSchema,
+            });
+            anthropicTools.push({
+              type: 'advisor_20260301',
+              name: 'advisor',
+              model: args.model,
+              max_uses: args.maxUses,
+              caching: args.caching
+                ? { type: args.caching.type, ttl: args.caching.ttl }
+                : undefined,
             });
             break;
           }
